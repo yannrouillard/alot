@@ -8,6 +8,7 @@ from twisted.internet import reactor, defer
 from settings import settings
 from buffers import BufferlistBuffer
 from commands import commandfactory
+from commands import CommandCanceled
 from alot.commands import CommandParseError
 from alot.commands.globals import CommandSequenceCommand
 from alot.helper import string_decode
@@ -557,7 +558,7 @@ class UI(object):
         footer_att = settings.get_theming_attribute('global', 'footer')
         return urwid.AttrMap(columns, footer_att)
 
-    def apply_command(self, cmd):
+    def apply_command(self, cmd, errback=None):
         """
         applies a command
 
@@ -566,6 +567,8 @@ class UI(object):
 
         :param cmd: an applicable command
         :type cmd: :class:`~alot.commands.Command`
+        :param errback: an optional custom error callback 
+        :type errback: :function
         """
         if cmd:
             # define (callback) function that invokes post-hook
@@ -578,12 +581,15 @@ class UI(object):
             # define error handler for Failures/Exceptions
             # raised in cmd.apply()
             def errorHandler(failure):
-                logging.error(failure.getTraceback())
-                errmsg = failure.getErrorMessage()
-                if errmsg:
-                    msg = "%s\n(check the log for details)"
-                    self.notify(
-                        msg % failure.getErrorMessage(), priority='error')
+                if failure.check(CommandCanceled):
+                    self.notify('canceled')
+                else:
+                    logging.error(failure.getTraceback())
+                    errmsg = failure.getErrorMessage()
+                    if errmsg:
+                        msg = "%s\n(check the log for details)"
+                        self.notify(
+                            msg % failure.getErrorMessage(), priority='error')
 
             # call cmd.apply
             def call_apply(ignored):
@@ -593,5 +599,7 @@ class UI(object):
             d = defer.maybeDeferred(prehook, ui=self, dbm=self.dbman)
             d.addCallback(call_apply)
             d.addCallback(call_posthook)
+            if errback:
+                d.addErrback(errback)
             d.addErrback(errorHandler)
             return d

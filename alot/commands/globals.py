@@ -17,6 +17,7 @@ from alot.commands import Command, registerCommand
 from alot.completion import CommandLineCompleter
 from alot.commands import CommandParseError
 from alot.commands import commandfactory
+from alot.commands import CommandCanceled
 from alot import buffers
 from alot.widgets.utils import DialogBox
 from alot import helper
@@ -121,7 +122,7 @@ class PromptCommand(Command):
             ui.commandprompthistory.append(cmdline)
             ui.apply_commandline(cmdline)
         else:
-            self._cancel(ui)
+            raise CommandCanceled()
 
 
 @registerCommand(MODE, 'refresh')
@@ -728,8 +729,8 @@ class ComposeCommand(Command):
                 fromaddress = yield ui.prompt('From', completer=cmpl,
                                               tab=1)
                 if fromaddress is None:
-                    self._cancel(ui)
-                    return
+                    raise CommandCanceled()
+
                 self.envelope.add('From', fromaddress)
 
         # add signature
@@ -784,8 +785,8 @@ class ComposeCommand(Command):
             to = yield ui.prompt('To',
                                  completer=completer)
             if to is None:
-                self._cancel(ui)
-                return
+                raise CommandCanceled()
+
             self.envelope.add('To', to.strip(' \t\n,'))
 
         if settings.get('ask_subject') and \
@@ -793,8 +794,8 @@ class ComposeCommand(Command):
             subject = yield ui.prompt('Subject')
             logging.debug('SUBJECT: "%s"' % subject)
             if subject is None:
-                self._cancel(ui)
-                return
+                raise CommandCanceled()
+
             self.envelope.add('Subject', subject)
 
         if settings.get('compose_ask_tags'):
@@ -802,8 +803,8 @@ class ComposeCommand(Command):
             tagsstring = yield ui.prompt('Tags', completer=comp)
             tags = filter(lambda x: x, tagsstring.split(','))
             if tags is None:
-                self._cancel(ui)
-                return
+                raise CommandCanceled()
+
             self.envelope.tags = tags
 
         if self.attach:
@@ -854,9 +855,17 @@ class CommandSequenceCommand(Command):
     def __init__(self, cmdline='', **kwargs):
         Command.__init__(self, **kwargs)
         self.cmdline = cmdline
+        self.canceled = False
 
     @inlineCallbacks
     def apply(self, ui):
+        # define a custom error handler to intercept cancellation
+        # and stop subsequent commands from being run
+        def errorHandler(failure):
+            failure.trap(CommandCanceled)
+            self.canceled = True
+            return failure
+
         # split commandline if necessary
         for cmdstring in split_commandline(self.cmdline):
             logging.debug('CMDSEQ: apply %s' % str(cmdstring))
@@ -869,9 +878,8 @@ class CommandSequenceCommand(Command):
             except CommandParseError, e:
                 ui.notify(e.message, priority='error')
                 return
-            yield ui.apply_command(cmd)
 
-            # if the user canceled an interactive command, we will
-            # not try to run the subsequent commands
-            if cmd.canceled:
+            yield ui.apply_command(cmd, errorHandler)
+
+            if self.canceled:
                 break

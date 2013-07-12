@@ -20,17 +20,17 @@ class Command(object):
         self.prehook = None
         self.posthook = None
         self.undoable = False
-        self.canceled = False
         self.help = self.__doc__
 
     def apply(self, caller):
         """code that gets executed when this command is applied"""
         pass
 
-    def _cancel(self, ui):
-        self.canceled = True
-        ui.notify('canceled')
 
+class CommandCanceled(Exception):
+    """ Exception triggered when an interactive command has been canceled
+    """
+    pass
 
 COMMANDS = {
     'search': {},
