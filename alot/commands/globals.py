@@ -855,17 +855,9 @@ class CommandSequenceCommand(Command):
     def __init__(self, cmdline='', **kwargs):
         Command.__init__(self, **kwargs)
         self.cmdline = cmdline
-        self.canceled = False
 
     @inlineCallbacks
     def apply(self, ui):
-        # define a custom error handler to intercept cancellation
-        # and stop subsequent commands from being run
-        def errorHandler(failure):
-            failure.trap(CommandCanceled)
-            self.canceled = True
-            return failure
-
         # split commandline if necessary
         for cmdstring in split_commandline(self.cmdline):
             logging.debug('CMDSEQ: apply %s' % str(cmdstring))
@@ -879,7 +871,9 @@ class CommandSequenceCommand(Command):
                 ui.notify(e.message, priority='error')
                 return
 
-            yield ui.apply_command(cmd, errorHandler)
+            # we don't want errors to be handled by the default error handler.
+            # This way any failing command will raise an exception here, 
+            # which will stop the command sequence and prevent subsequent
+            # commands from begin run
+            yield ui.apply_command(cmd, handle_error=False)
 
-            if self.canceled:
-                break

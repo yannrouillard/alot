@@ -558,7 +558,7 @@ class UI(object):
         footer_att = settings.get_theming_attribute('global', 'footer')
         return urwid.AttrMap(columns, footer_att)
 
-    def apply_command(self, cmd, errback=None):
+    def apply_command(self, cmd, handle_error=True):
         """
         applies a command
 
@@ -567,8 +567,11 @@ class UI(object):
 
         :param cmd: an applicable command
         :type cmd: :class:`~alot.commands.Command`
-        :param errback: an optional custom error callback 
-        :type errback: :function
+        :param handle_error: if True, the caller wants to rely on the default
+                             error handling mechanism to process the eventual
+                             errors raised while the command is applied.
+                             This is the default.
+        :type handle_error: bool
         """
         if cmd:
             # define (callback) function that invokes post-hook
@@ -578,7 +581,7 @@ class UI(object):
                     return defer.maybeDeferred(cmd.posthook, ui=self,
                                                dbm=self.dbman)
 
-            # define error handler for Failures/Exceptions
+            # define a generic error handler for Failures/Exceptions
             # raised in cmd.apply()
             def errorHandler(failure):
                 if failure.check(CommandCanceled):
@@ -599,7 +602,6 @@ class UI(object):
             d = defer.maybeDeferred(prehook, ui=self, dbm=self.dbman)
             d.addCallback(call_apply)
             d.addCallback(call_posthook)
-            if errback:
-                d.addErrback(errback)
-            d.addErrback(errorHandler)
+            if handle_error:
+                d.addErrback(errorHandler)
             return d
