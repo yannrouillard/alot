@@ -4,6 +4,7 @@
 import os
 import code
 from twisted.internet import threads
+from twisted.internet import defer
 import subprocess
 import email
 import urwid
@@ -856,24 +857,29 @@ class CommandSequenceCommand(Command):
         Command.__init__(self, **kwargs)
         self.cmdline = cmdline
 
-    @inlineCallbacks
     def apply(self, ui):
+
+        def apply_command(ignored, cmdstring, cmd):
+            logging.debug('CMDSEQ: apply %s' % str(cmdstring))
+            # store cmdline for use with 'repeat' command
+            if cmd.repeatable:
+                ui.last_commandline = self.cmdline.lstrip()
+            return ui.apply_command(cmd, handle_error=False)
+
+        # we initialize a deferred which is already triggered 
+        # so that our callbacks will start to be called 
+        # immediately as possible
+        d = defer.succeed(None)
+
         # split commandline if necessary
         for cmdstring in split_commandline(self.cmdline):
-            logging.debug('CMDSEQ: apply %s' % str(cmdstring))
             # translate cmdstring into :class:`Command`
             try:
                 cmd = commandfactory(cmdstring, ui.mode)
-                # store cmdline for use with 'repeat' command
-                if cmd.repeatable:
-                    ui.last_commandline = self.cmdline.lstrip()
             except CommandParseError, e:
                 ui.notify(e.message, priority='error')
                 return
+            d.addCallback(apply_command, cmdstring, cmd)
 
-            # we don't want errors to be handled by the default error handler.
-            # This way any failing command will raise an exception here, 
-            # which will stop the command sequence and prevent subsequent
-            # commands from begin run
-            yield ui.apply_command(cmd, handle_error=False)
+        return d
 
