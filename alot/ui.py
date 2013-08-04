@@ -10,7 +10,7 @@ from buffers import BufferlistBuffer
 from commands import commandfactory
 from commands import CommandCanceled
 from alot.commands import CommandParseError
-from alot.commands.globals import CommandSequenceCommand
+from alot.helper import split_commandline
 from alot.helper import string_decode
 from alot.widgets.globals import CompleteEdit
 from alot.widgets.globals import ChoiceWidget
@@ -164,15 +164,47 @@ class UI(object):
 
     def apply_commandline(self, cmdline):
         """
-        Dispatches the interpretation of the command line string to
-        :class:`CommandSequenceCommand
-        <alot.commands.globals.CommandSequenceCommand>`.
+        interprets a command line string
+
+        i.e., splits it into separate command strings,
+        instanciates :class:`Commands <alot.commands.Command>`
+        accordingly and applies then in sequence.
 
         :param cmdline: command line to interpret
         :type cmdline: str
         """
-        cmd = CommandSequenceCommand(cmdline)
-        self.apply_command(cmd)
+        # remove initial spaces
+        cmdline = cmdline.lstrip()
+
+        # we pass Commands one by one to `self.apply_command`.
+        # To properly call them in sequence, even if they trigger asyncronous
+        # code (return Deferreds), these applications happen in individual
+        # callback functions which are then used as callback chain to some
+        # trivial Deferred that immediately calls its first callback. This way,
+        # one callback may return a Deferred and thus postpone the application
+        # of the next callback (and thus Command-application)
+
+        def apply_this_command(ignored, cmdstring, cmd):
+            logging.debug('CMDSEQ: apply %s' % str(cmdstring))
+            # store cmdline for use with 'repeat' command
+            if cmd.repeatable:
+                self.last_commandline = cmdline
+            return self.apply_command(cmd, handle_error=False)
+
+        # we initialize a deferred which is already triggered
+        # so that the first callbacks will be called immediately
+        d = defer.succeed(None)
+
+        # split commandline if necessary
+        for cmdstring in split_commandline(cmdline):
+            # translate cmdstring into :class:`Command`
+            try:
+                cmd = commandfactory(cmdstring, self.mode)
+            except CommandParseError, e:
+                self.notify(e.message, priority='error')
+                return
+            d.addCallback(apply_this_command, cmdstring, cmd)
+        return d
 
     def _unhandeled_input(self, key):
         """
