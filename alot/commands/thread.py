@@ -17,6 +17,7 @@ from alot.commands.globals import ExternalCommand
 from alot.commands.globals import FlushCommand
 from alot.commands.globals import ComposeCommand
 from alot.commands.globals import MoveCommand
+from alot.commands.globals import CommandCanceled
 from alot.commands.envelope import SendCommand
 from alot import completion
 from alot.db.utils import decode_header
@@ -56,9 +57,13 @@ def determine_sender(mail, action='reply'):
     assert my_accounts, 'no accounts set!'
 
     # extract list of addresses to check for my address
+    # X-Envelope-To and Envelope-To are used to store the recipient address
+    # if not included in other fields
     candidate_addresses = getaddresses(mail.get_all('To', []) +
                                        mail.get_all('Cc', []) +
                                        mail.get_all('Delivered-To', []) +
+                                       mail.get_all('X-Envelope-To', []) +
+                                       mail.get_all('Envelope-To', []) +
                                        mail.get_all('From', []))
 
     logging.debug('candidate addresses: %s' % candidate_addresses)
@@ -385,8 +390,8 @@ class BounceMailCommand(Command):
             completer = None
         to = yield ui.prompt('To', completer=completer)
         if to is None:
-            ui.notify('canceled')
-            return
+            raise CommandCanceled()
+
         mail['Resent-To'] = to.strip(' \t\n,')
 
         logging.debug("bouncing mail")
@@ -824,7 +829,7 @@ class SaveAttachmentCommand(Command):
                     ui.notify('not a directory: %s' % self.path,
                               priority='error')
             else:
-                ui.notify('canceled')
+                raise CommandCanceled()
         else:  # save focussed attachment
             focus = ui.get_deep_focus()
             if isinstance(focus, AttachmentWidget):
@@ -843,7 +848,7 @@ class SaveAttachmentCommand(Command):
                     except (IOError, OSError) as e:
                         ui.notify(str(e), priority='error')
                 else:
-                    ui.notify('canceled')
+                    raise CommandCanceled()
 
 
 class OpenAttachmentCommand(Command):
